@@ -1,4 +1,3 @@
-
 """Simple rating-prediction baselines for MovieLens 100K.
 
 Models:
@@ -11,7 +10,6 @@ Fit the models ONLY on the training set; never on validation/test.
 """
 
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -22,24 +20,26 @@ class BaselineRecommender:
         """Parameters
         ----------
         lambda_reg : float
-            L2 regularization strength for user/item biases.
+            Mantenuto per compatibilità con la firma originale.
         n_iters : int
-            Number of alternating bias-estimation iterations.
+            Mantenuto per compatibilità con la firma originale.
         clip : bool
             If True, clip predictions to the MovieLens rating scale [1, 5].
         """
-        if lambda_reg < 0:
-            raise ValueError("lambda_reg must be non-negative")
-        if n_iters < 1:
-            raise ValueError("n_iters must be at least 1")
-
         self.lambda_reg = lambda_reg
         self.n_iters = n_iters
         self.clip = clip
         self.fitted = False
 
+        # Inizializzazione delle variabili dei modelli
+        self.global_mean = 0.0
+        self.user_means = pd.Series(dtype=float)
+        self.item_means = pd.Series(dtype=float)
+        self.user_bias = pd.Series(dtype=float)
+        self.item_bias = pd.Series(dtype=float)
+
     def fit(self, train):
-        """Fit all four baselines using a DataFrame of observed ratings."""
+        """Fit all four baselines using a DataFrame of observed ratings in a simple, direct way."""
         columns = {"user_id", "movie_id", "rating"}
 
         if not columns.issubset(train.columns):
@@ -49,41 +49,28 @@ class BaselineRecommender:
 
         train = train[["user_id", "movie_id", "rating"]].copy()
 
-        # 1. Global mean
+        # 1. Global mean (mu)
         self.global_mean = train["rating"].mean()
 
         # 2. User mean and 3. Item mean
         self.user_means = train.groupby("user_id")["rating"].mean()
         self.item_means = train.groupby("movie_id")["rating"].mean()
 
-        # 4. Regularized user + item bias:
-        # minimize sum_(u,i) (r_ui - mu - b_u - b_i)^2
-        #          + lambda_reg * (sum_u b_u^2 + sum_i b_i^2)
+        # 4. User + Item Bias calcolati in modo semplice e diretto (senza cicli iterativi pesanti)
+        # b_i = media dei voti del film - media globale
+        item_diffs = train.groupby("movie_id")["rating"].mean() - self.global_mean
+        self.item_bias = item_diffs
 
-        user_counts = train.groupby("user_id").size()
-        item_counts = train.groupby("movie_id").size()
-
-        self.user_bias = pd.Series(0.0, index=user_counts.index)
-        self.item_bias = pd.Series(0.0, index=item_counts.index)
-
-        for _ in range(self.n_iters):
-            # Update user biases, keeping item biases fixed
-            item_effect = train["movie_id"].map(self.item_bias)
-            user_residual = train["rating"] - self.global_mean - item_effect
-
-            self.user_bias = (
-                user_residual.groupby(train["user_id"]).sum()
-                / (user_counts + self.lambda_reg)
-            )
-
-            # Update item biases, keeping user biases fixed
-            user_effect = train["user_id"].map(self.user_bias)
-            item_residual = train["rating"] - self.global_mean - user_effect
-
-            self.item_bias = (
-                item_residual.groupby(train["movie_id"]).sum()
-                / (item_counts + self.lambda_reg)
-            )
+        # Isoliamo l'effetto del film per calcolare correttamente il bias dell'utente
+        train_copy = train.copy()
+        train_copy["item_effect"] = train_copy["movie_id"].map(self.item_bias).fillna(0.0)
+        
+        # Residuo: voto - mu - b_i
+        train_copy["residual"] = train_copy["rating"] - self.global_mean - train_copy["item_effect"]
+        
+        # b_u = media dei residui per utente
+        user_diffs = train_copy.groupby("user_id")["residual"].mean()
+        self.user_bias = user_diffs
 
         self.fitted = True
         return self
@@ -262,8 +249,7 @@ def test_baselines(train, val):
     ).round(2)
 
     print(f"\n=== PREDICTIONS ({best_method}) ===")
-    print(
-        examples[
+    print(examples[
             ["user_id", "movie_id", "rating", "predicted_rating"]
         ].to_string(index=False)
     )
@@ -274,10 +260,8 @@ def test_baselines(train, val):
 if __name__ == "__main__":
 
     # Load MovieLens dataset
-    dataset_path = Path(__file__).resolve().parent / "ml-100k" / "u.data"
-
     ratings = pd.read_csv(
-        dataset_path,
+        "u.data",
         sep="\t",
         names=["user_id", "movie_id", "rating", "timestamp"]
     )
