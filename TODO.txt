@@ -1,0 +1,28 @@
+Per completare M3 — Low-Rank Matrix Factorization, dovremo aggiungere al report una sezione teorica che non è esplicitamente presente nel codice.
+Cosa aggiungere al report
+- 1. Definizione della funzione obiettivo
+- Presentare il modello utilizzato: \(\hat r_{ui}=\mu+b_u+b_i+U_u^TV_i\).
+- Definire l'errore sui soli rating osservati.
+- Spiegare il ruolo della regolarizzazione L2 nel limitare l'overfitting.
+- 2. Derivazione del sottoproblema a fattore fisso
+- Supporre di mantenere fissi i fattori dei film \(V\) e i bias.
+- Ricavare il problema di minimi quadrati regolarizzati relativo ai fattori di un singolo utente \(U_u\).
+- Mostrare che il problema diventa una Ridge Regression.
+- 3. Derivazione delle equazioni normali
+- Calcolare il gradiente del sottoproblema rispetto a \(U_u\).
+- Imporre il gradiente uguale a zero.
+- Ottenere il sistema lineare:
+\[
+(Q_u^TQ_u+\lambda|\Omega_u|I)U_u=Q_u^Ty_u
+\]
+
+- 4. Collegamento con SGD
+- Spiegare che ALS risolverebbe esplicitamente questi sottoproblemi.
+- Chiarire che il nostro SGD, invece, aggiorna progressivamente i fattori utilizzando l'errore di ciascun rating osservato.
+- Riportare le formule di aggiornamento dei fattori latenti e dei bias implementate nel codice.
+- 5. Motivazione della scelta di SGD
+- Implementazione relativamente semplice.
+- Costo computazionale contenuto su MovieLens 100K.
+- Assenza della necessità di risolvere ripetutamente sistemi lineari.
+- Possibilità di ottenere buone prestazioni predittive.
+Importante: non dobbiamo implementare né risolvere numericamente il sottoproblema. È sufficiente derivarlo matematicamente e spiegare il collegamento con l'algoritmo SGD scelto.
