@@ -1,8 +1,10 @@
+
 """M3-M4 - MovieLens 100K: Matrix Factorization with SGD and Grid Search."""
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import argparse
 
 from baselines import load_ratings, split_ratings
 
@@ -190,16 +192,27 @@ def grid_search(train, val, ranks, regularizations, epochs=20):
     return best_model, results
 
 
-def best_hyperparameters(train, val):
-    """Run M4 and return selected parameters, fitted model and search results."""
+def best_hyperparameters(train, val, run_evaluation=False):
+    """Use best known parameters, or run Grid Search on request."""
 
-    model, results = grid_search(
-        train,
-        val,
-        ranks=[5, 10, 20],
-        regularizations=[0.01, 0.05, 0.1],
-        epochs=20
-    )
+    if run_evaluation:
+        model, results = grid_search(
+            train,
+            val,
+            ranks=[5, 10, 20],
+            regularizations=[0.01, 0.05, 0.1],
+            epochs=20
+        )
+    else:
+        model = MatrixFactorizationSGD(
+            k=10,
+            learning_rate=0.01,
+            reg=0.05,
+            epochs=20,
+            seed=42
+        ).fit(train, val)
+
+        results = None
 
     params = {
         "k": model.k,
@@ -216,7 +229,7 @@ def best_hyperparameters(train, val):
 # 3. MAIN (M3-M4)
 # ==========================================================
 
-def main():
+def main(run_evaluation=False):
 
     ratings = load_ratings()
     train, val, test = split_ratings(ratings, seed=42)
@@ -227,16 +240,28 @@ def main():
         f"Test (reserved): {len(test)}"
     )
 
-    params, model, results = best_hyperparameters(train, val)
+    if run_evaluation:
+        print("\n=== RUNNING GRID SEARCH ===")
+    else:
+        print("\nUsing best known parameters: k=10, reg=0.05, epochs=20")
 
-    print("\n=== GRID SEARCH RESULTS ===")
-    print(results.round(4).to_string(index=False))
+    params, model, results = best_hyperparameters(
+        train, val, run_evaluation=run_evaluation
+    )
 
-    print("\n=== BEST MODEL ===")
+    if run_evaluation:
+        print("\n=== GRID SEARCH RESULTS ===")
+        print(results.round(4).to_string(index=False))
+
+    print("\n=== SELECTED MODEL ===")
     print(f"Rank:           {params['k']}")
     print(f"Regularization: {params['reg']}")
     print(f"Best Epoch:     {params['best_epoch']}")
     print(f"Validation RMSE: {model.best_val_rmse:.4f}")
+
+    # Detailed evaluation only when requested
+    if not run_evaluation:
+        return
 
     # Training and validation RMSE across epochs
     history = pd.DataFrame(model.history)
@@ -286,4 +311,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--evaluate", action="store_true")
+    args = parser.parse_args()
+
+    main(run_evaluation=args.evaluate)
