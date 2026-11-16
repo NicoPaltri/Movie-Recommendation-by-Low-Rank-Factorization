@@ -1,12 +1,28 @@
 
-"""M3-M4 - MovieLens 100K: Matrix Factorization with SGD and Grid Search."""
+"""M3-M4 - Matrix Factorization with SGD and Grid Search."""
 
+import argparse
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import argparse
 
 from baselines import load_ratings, split_ratings
+
+
+# ==========================================================
+# CONFIGURATION
+# ==========================================================
+
+DEFAULT_K = 20 #Latent factors
+DEFAULT_REG = 0.1 #Lambda
+DEFAULT_LEARNING_RATE = 0.01
+
+EPOCHS = 50
+SEED = 42
+
+K_VALUES = [5, 10, 20, 30]
+REGULARIZATIONS_VALUES = [0.05, 0.1, 0.2]
+LEARNING_RATE_VALUES = [0.005, 0.01, 0.02]
 
 
 # ==========================================================
@@ -15,8 +31,8 @@ from baselines import load_ratings, split_ratings
 
 class MatrixFactorizationSGD:
 
-    def __init__(self, k=10, learning_rate=0.01,
-                 reg=0.05, epochs=20, seed=42):
+    def __init__(self, k=DEFAULT_K, learning_rate=DEFAULT_LEARNING_RATE,
+                 reg=DEFAULT_REG, epochs=EPOCHS, seed=SEED):
 
         self.k = k
         self.learning_rate = learning_rate
@@ -41,6 +57,7 @@ class MatrixFactorizationSGD:
         self.mu = ratings.mean()
         self.U = rng.normal(0, 0.1, size=(len(self.user_ids), self.k))
         self.V = rng.normal(0, 0.1, size=(len(self.movie_ids), self.k))
+
         self.user_bias = np.zeros(len(self.user_ids))
         self.movie_bias = np.zeros(len(self.movie_ids))
 
@@ -48,31 +65,38 @@ class MatrixFactorizationSGD:
         self.best_epoch = 0
         self.best_val_rmse = float("inf")
 
-        # SGD training
+        # --------------------------------------------------
+        # SGD Training
+        # --------------------------------------------------
+
         for epoch in range(self.epochs):
 
             # Shuffle observed ratings each epoch
             for pos in rng.permutation(len(ratings)):
+
                 u = user_idx[pos]
                 i = movie_idx[pos]
                 r = ratings[pos]
 
-                # Keep previous factors for both updates
+                # Previous factors
                 p = self.U[u].copy()
                 q = self.V[i].copy()
 
+                # Prediction and error
                 prediction = (
                     self.mu
                     + self.user_bias[u]
                     + self.movie_bias[i]
                     + p @ q
                 )
+
                 error = r - prediction
 
                 # Update biases
                 self.user_bias[u] += self.learning_rate * (
                     error - self.reg * self.user_bias[u]
                 )
+
                 self.movie_bias[i] += self.learning_rate * (
                     error - self.reg * self.movie_bias[i]
                 )
@@ -81,10 +105,12 @@ class MatrixFactorizationSGD:
                 self.U[u] += self.learning_rate * (
                     error * q - self.reg * p
                 )
+
                 self.V[i] += self.learning_rate * (
                     error * p - self.reg * q
                 )
 
+            # Track training and validation RMSE
             train_rmse = self.rmse(train)
             val_rmse = self.rmse(val)
 
@@ -94,10 +120,12 @@ class MatrixFactorizationSGD:
                 "Validation_RMSE": val_rmse
             })
 
-            # Save the model at the best validation epoch
+            # Save parameters at the best validation epoch
             if val_rmse < self.best_val_rmse:
+
                 self.best_val_rmse = val_rmse
                 self.best_epoch = epoch + 1
+
                 best_params = (
                     self.U.copy(),
                     self.V.copy(),
@@ -105,7 +133,7 @@ class MatrixFactorizationSGD:
                     self.movie_bias.copy()
                 )
 
-        # Restore parameters from the best epoch
+        # Restore the best model
         (
             self.U,
             self.V,
@@ -120,15 +148,18 @@ class MatrixFactorizationSGD:
 
         users = self.user_ids.get_indexer(data["user_id"])
         movies = self.movie_ids.get_indexer(data["movie_id"])
+
         pred = np.full(len(data), self.mu)
 
         known_users = users >= 0
         known_movies = movies >= 0
         both_known = known_users & known_movies
 
+        # User and movie biases
         pred[known_users] += self.user_bias[users[known_users]]
         pred[known_movies] += self.movie_bias[movies[known_movies]]
 
+        # Latent factor interaction
         pred[both_known] += np.sum(
             self.U[users[both_known]]
             * self.V[movies[both_known]],
@@ -139,8 +170,10 @@ class MatrixFactorizationSGD:
 
     def rmse(self, data):
         """Compute RMSE on observed ratings."""
+
         y = data["rating"].to_numpy(dtype=float)
         pred = self.predict(data)
+
         return np.sqrt(np.mean((y - pred) ** 2))
 
 
@@ -148,8 +181,11 @@ class MatrixFactorizationSGD:
 # 2. GRID SEARCH (M4)
 # ==========================================================
 
-def grid_search(train, val, ranks, regularizations, epochs=20):
-    """Find the best rank, regularization and epoch using validation RMSE."""
+def grid_search(train, val,
+                ranks=K_VALUES,
+                regularizations=REGULARIZATIONS_VALUES,
+                learning_rates=LEARNING_RATE_VALUES):
+    """Select rank, regularization, learning rate and epoch."""
 
     results = []
     best_model = None
@@ -157,31 +193,27 @@ def grid_search(train, val, ranks, regularizations, epochs=20):
 
     for k in ranks:
         for reg in regularizations:
-            print(f"\nTraining model: k={k}, reg={reg}")
+            for lr in learning_rates:
 
-            model = MatrixFactorizationSGD(
-                k=k,
-                learning_rate=0.01,
-                reg=reg,
-                epochs=epochs,
-                seed=42
-            ).fit(train, val)
+                print(f"Training: k={k}, reg={reg}, lr={lr}")
 
-            results.append({
-                "Rank": k,
-                "Regularization": reg,
-                "Best_Epoch": model.best_epoch,
-                "Validation_RMSE": model.best_val_rmse
-            })
+                model = MatrixFactorizationSGD(
+                    k=k,
+                    reg=reg,
+                    learning_rate=lr
+                ).fit(train, val)
 
-            print(
-                f"Best epoch: {model.best_epoch} | "
-                f"Validation RMSE: {model.best_val_rmse:.4f}"
-            )
+                results.append({
+                    "Rank": k,
+                    "Regularization": reg,
+                    "Learning_Rate": lr,
+                    "Best_Epoch": model.best_epoch,
+                    "Validation_RMSE": model.best_val_rmse
+                })
 
-            if model.best_val_rmse < best_rmse:
-                best_rmse = model.best_val_rmse
-                best_model = model
+                if model.best_val_rmse < best_rmse:
+                    best_rmse = model.best_val_rmse
+                    best_model = model
 
     results = (
         pd.DataFrame(results)
@@ -192,26 +224,20 @@ def grid_search(train, val, ranks, regularizations, epochs=20):
     return best_model, results
 
 
+# ==========================================================
+# 3. MODEL SELECTION
+# ==========================================================
+
 def best_hyperparameters(train, val, run_evaluation=False):
-    """Use best known parameters, or run Grid Search on request."""
+    """Train with known parameters or perform Grid Search."""
 
     if run_evaluation:
-        model, results = grid_search(
-            train,
-            val,
-            ranks=[5, 10, 20],
-            regularizations=[0.01, 0.05, 0.1],
-            epochs=20
-        )
-    else:
-        model = MatrixFactorizationSGD(
-            k=10,
-            learning_rate=0.01,
-            reg=0.05,
-            epochs=20,
-            seed=42
-        ).fit(train, val)
 
+        model, results = grid_search(train, val)
+
+    else:
+
+        model = MatrixFactorizationSGD().fit(train, val)
         results = None
 
     params = {
@@ -226,13 +252,14 @@ def best_hyperparameters(train, val, run_evaluation=False):
 
 
 # ==========================================================
-# 3. MAIN (M3-M4)
+# 4. MAIN
 # ==========================================================
 
 def main(run_evaluation=False):
 
+    # Load and split dataset
     ratings = load_ratings()
-    train, val, test = split_ratings(ratings, seed=42)
+    train, val, test = split_ratings(ratings, seed=SEED)
 
     print(
         f"Train: {len(train)} | "
@@ -240,39 +267,38 @@ def main(run_evaluation=False):
         f"Test (reserved): {len(test)}"
     )
 
-    if run_evaluation:
-        print("\n=== RUNNING GRID SEARCH ===")
-    else:
-        print("\nUsing best known parameters: k=10, reg=0.05, epochs=20")
-
+    # Train with default parameters or perform Grid Search
     params, model, results = best_hyperparameters(
         train, val, run_evaluation=run_evaluation
     )
 
+    # Show Grid Search results only when requested
     if run_evaluation:
         print("\n=== GRID SEARCH RESULTS ===")
         print(results.round(4).to_string(index=False))
 
+    # Selected model
     print("\n=== SELECTED MODEL ===")
-    print(f"Rank:           {params['k']}")
-    print(f"Regularization: {params['reg']}")
-    print(f"Best Epoch:     {params['best_epoch']}")
+    print(f"Rank:            {params['k']}")
+    print(f"Regularization:  {params['reg']}")
+    print(f"Learning Rate:   {params['learning_rate']}")
+    print(f"Best Epoch:      {params['best_epoch']}")
     print(f"Validation RMSE: {model.best_val_rmse:.4f}")
 
-    # Detailed evaluation only when requested
-    if not run_evaluation:
-        return
+    # --------------------------------------------------
+    # Training and Validation RMSE across epochs
+    # --------------------------------------------------
 
-    # Training and validation RMSE across epochs
     history = pd.DataFrame(model.history)
 
-    print("\n=== CONVERGENCE HISTORY (BEST MODEL) ===")
+    print("\n=== CONVERGENCE HISTORY ===")
     print(history.round(4).to_string(index=False))
 
     plt.figure(figsize=(9, 5))
     plt.plot(history["Epoch"], history["Train_RMSE"], label="Training RMSE")
     plt.plot(history["Epoch"], history["Validation_RMSE"], label="Validation RMSE")
     plt.axvline(model.best_epoch, linestyle="--", label="Best Epoch")
+
     plt.xlabel("Epoch")
     plt.ylabel("RMSE")
     plt.title("SGD Matrix Factorization - Convergence")
@@ -281,38 +307,14 @@ def main(run_evaluation=False):
     plt.tight_layout()
     plt.show()
 
-    # Validation metrics
-    y = val["rating"].to_numpy(dtype=float)
-    pred = model.predict(val)
-    error = y - pred
-
-    rmse = np.sqrt(np.mean(error ** 2))
-    mae = np.mean(np.abs(error))
-    denom = np.sum((y - y.mean()) ** 2)
-    r2 = 1 - np.sum(error ** 2) / denom if denom > 0 else np.nan
-    accuracy = np.mean(np.rint(pred) == y)
-    within_one = np.mean(np.abs(np.rint(pred) - y) <= 1)
-
-    print("\n=== BEST MATRIX FACTORIZATION RESULTS (VALIDATION) ===")
-    print(f"RMSE:     {rmse:.4f}")
-    print(f"MAE:      {mae:.4f}")
-    print(f"R2:       {r2:.4f}")
-    print(f"Accuracy: {accuracy:.4%}")
-    print(f"Within_1: {within_one:.4%}")
-
-    examples = val.sample(n=min(5, len(val)), random_state=42).copy()
-    examples["prediction"] = model.predict(examples)
-
-    print("\n=== EXAMPLE PREDICTIONS (BEST SGD) ===")
-    print(
-        examples[["user_id", "movie_id", "rating", "prediction"]]
-        .round(2).to_string(index=False)
-    )
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--evaluate", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="Run Grid Search to optimize hyperparameters"
+    )
 
+    args = parser.parse_args()
     main(run_evaluation=args.evaluate)
