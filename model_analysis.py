@@ -1,4 +1,3 @@
-
 """M6 - Popularity bias, cold-start behavior and latent factor analysis."""
 
 from pathlib import Path
@@ -119,27 +118,58 @@ def analyze_popularity(model, baselines, train, val):
     print(results.round(4).to_string(index=False))
 
     # Graphical comparison
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    labels = {
+        "matrix_factorization_sgd": "Matrix factorization\n(SGD)",
+        "user_item_bias": "User-item bias\n(baseline)"
+    }
+    colors = {
+        "matrix_factorization_sgd": "#2a78d6",
+        "user_item_bias": "#eb6834"
+    }
+    ink, muted, grid = "#0b0b0b", "#52514e", "#e1e0d9"
 
-    axes[0].bar(
-        results["Model"],
-        results["Top_10pct_Share"] * 100
+    names = [labels[m] for m in results["Model"]]
+    bar_colors = [colors[m] for m in results["Model"]]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.4))
+
+    panels = (
+        (axes[0], results["Top_10pct_Share"] * 100,
+         f"(a) Share of recommendations from the\n{n_popular} most popular movies (top 10%)",
+         "Share of Top-10 recommendations (%)", None),
+        (axes[1], results["Catalog_Coverage"] * 100,
+         f"(b) Catalog coverage\n(movies recommended at least once, out of {len(catalog)})",
+         "Catalog coverage (%)", results["Unique_Movies"]),
     )
-    axes[0].set_title("Recommendations from top 10% popular movies")
-    axes[0].set_ylabel("Share of recommendations (%)")
 
-    axes[1].bar(
-        results["Model"],
-        results["Catalog_Coverage"] * 100
-    )
-    axes[1].set_title("Catalog coverage")
-    axes[1].set_ylabel("Movies recommended at least once (%)")
+    for ax, values, title, ylabel, counts in panels:
 
-    for ax in axes:
-        ax.tick_params(axis="x", labelrotation=12)
-        ax.grid(axis="y", alpha=0.3)
+        bars = ax.bar(names, values, color=bar_colors, width=0.55)
+
+        # Value labels above the bars
+        for j, (bar, value) in enumerate(zip(bars, values)):
+            text = f"{value:.1f}%"
+            if counts is not None:
+                text += f"\n({counts.iloc[j]} movies)"
+            ax.text(bar.get_x() + bar.get_width() / 2, value,
+                    text, ha="center", va="bottom",
+                    fontsize=10, color=ink)
+
+        ax.set_ylim(0, values.max() * 1.3)
+        ax.set_title(title, loc="left", fontsize=11, color=ink)
+        ax.set_ylabel(ylabel, color=muted)
+
+        # Recessive axes and grid
+        ax.grid(axis="y", color=grid, linewidth=0.8)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        for side in ("left", "bottom"):
+            ax.spines[side].set_color("#c3c2b7")
+        ax.tick_params(colors=muted)
 
     plt.tight_layout()
+    plt.savefig("popularity_bias.png", dpi=200, bbox_inches="tight")
     plt.show()
 
 
